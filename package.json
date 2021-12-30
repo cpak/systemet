@@ -1,0 +1,27 @@
+{
+  "name": "systemet",
+  "version": "1.0.0",
+  "description": "systemet",
+  "main": "build/index.js",
+  "scripts": {
+    "clean": "rm -rf build",
+    "dev": "webpack --watch & ./server/index.js ./build",
+    "start": "./server/index.js ./build",
+    "build": "npm run clean && webpack"
+  },
+  "author": "christoferpak@gmail.com",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chrome": "^0.0.174",
+    "@types/webpack": "^5.28.0",
+    "copy-webpack-plugin": "^10.2.0",
+    "css-loader": "^6.5.1",
+    "html-webpack-plugin": "^5.5.0",
+    "http-server": "^14.0.0",
+    "style-loader": "^3.3.1",
+    "ts-loader": "^9.2.6",
+    "typescript": "^4.5.4",
+    "webpack": "^5.65.0",
+    "webpack-cli": "^4.9.1"
+  }
+}
