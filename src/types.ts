@@ -1,9 +1,15 @@
-export interface AdditionalProductDataMsg {
+export enum ProductType {
+  BEER = "BEER",
+  WINE = "WINE",
+};
+
+export interface ExternalProductDataMsg {
+  productType: ProductType;
   productName: string;
 }
 
-export interface AdditionalProductData {
+export interface ExternalProductData {
   name: string;
-  rating: number;
+  rating: string;
   url: string;
 }

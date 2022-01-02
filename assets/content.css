@@ -1,0 +1,9 @@
+.systemet {
+  background-color: #ffffff;
+  font-family: monospace;
+  margin: -2em 0 0 1em;
+  position: absolute;
+}
+.systemet .hidden {
+  display: none;
+}

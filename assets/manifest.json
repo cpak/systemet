@@ -9,10 +9,12 @@
   "content_scripts": [
     {
       "matches": ["https://www.systembolaget.se/*"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "css": ["content.css"]
     }
   ],
   "host_permissions": [
+    "https://www.hachette-vins.com/",
     "https://untappd.com/"
   ],
   "permissions": ["storage"],
