@@ -27,7 +27,7 @@ export function identity<T>(x: T): T {
 }
 
 export function delay(n: number): Promise<void> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     setTimeout(resolve, n);
   });
 }

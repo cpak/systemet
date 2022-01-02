@@ -12,9 +12,13 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 // TODO: get structured product data from Systembolaget search
 // window.appSettings.ocpApimSubscriptionKey
 
-function productData(name: string | null, url: string | null, rating: string | null): ExternalProductData | null {
+function productData(
+  name: string | null,
+  url: string | null,
+  rating: string | null
+): ExternalProductData | null {
   if (!name || !url || !rating) return null;
-  return {name, url, rating};
+  return { name, url, rating };
 }
 
 function untappdUrl(productName: string): string {
@@ -51,37 +55,47 @@ function hachetteUrl(productName: string): string {
 function parseHachetteHtml(html: string): ExternalProductData | null {
   const $doc = cheerio.load(html);
   let externalProduct: ExternalProductData | null = null;
-  $doc(".vinResult .block")
-    .each((_, el) => {
-      if (externalProduct) return;
-      const $el = cheerio(el);
-      const name = [
-        $el.find(".title h2")?.text(),
-        $el.find(".sub-title h2")?.text(),
-      ]
-        .filter(Boolean)
-        .join(" ");
-      const url = HACHETTE_BASE_URL + ($el.find(".title a")?.attr("href") || "");
-      const year = $el.find(".stars h2")?.text().split(" ").filter(s => !isNaN(parseInt(s, 10)))[0];
-      const rating = [
-        $el.find(".stars .active").length.toString() || "0",
-        $el.find(".which .icon-heart").length ? "❤" : "",
-        year && `(${year})`,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      externalProduct = productData(name, url, rating);
-    });
+  $doc(".vinResult .block").each((_, el) => {
+    if (externalProduct) return;
+    const $el = cheerio(el);
+    const name = [
+      $el.find(".title h2")?.text(),
+      $el.find(".sub-title h2")?.text(),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const url = HACHETTE_BASE_URL + ($el.find(".title a")?.attr("href") || "");
+    const year = $el
+      .find(".stars h2")
+      ?.text()
+      .split(" ")
+      .filter((s) => !isNaN(parseInt(s, 10)))[0];
+    const rating = [
+      $el.find(".stars .active").length.toString() || "0",
+      $el.find(".which .icon-heart").length ? "❤" : "",
+      year && `(${year})`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    externalProduct = productData(name, url, rating);
+  });
   return externalProduct;
 }
 
-async function fetchCached(url: string): Promise<string> {
+async function fetchCached(
+  url: string,
+  parseResponse: (html: string) => ExternalProductData | null
+): Promise<ExternalProductData | null> {
   const cached = await chrome.storage.local.get(url);
   if (cached && cached[url] && cached[url].date < Date.now() + CACHE_TTL_MS) {
-    console.log(`${url} from cache`);
     return cached[url];
   }
-  return fetch(url, { method: "GET", mode: "cors" }).then((r) => r.text());
+  const cache = (d: ExternalProductData | null) =>
+    chrome.storage.local.set({ [url]: { ...d, date: Date.now() } }).then(() => d);
+  return fetch(url, { method: "GET", mode: "cors" })
+    .then((r) => r.text())
+    .then(parseResponse)
+    .then(cache);
 }
 
 const TYPE_TO_CONFIG = {
@@ -95,11 +109,12 @@ chrome.runtime.onMessage.addListener(function (
   sendResponse
 ) {
   const { url, parseResponse } = TYPE_TO_CONFIG[request.productType];
-  fetchCached(url(request.productName))
-    .then(parseResponse)
-    .then(p => {
+  fetchCached(url(request.productName), parseResponse)
+    .then((p) => {
       const logStr = p ? `${p.name} ${p.rating} ${p.url}` : "null";
-      console.log(`${request.productName} (${request.productType}) => ${logStr}`);
+      console.log(
+        `${request.productName} (${request.productType}) => ${logStr}`
+      );
       return p;
     })
     .then(sendResponse);

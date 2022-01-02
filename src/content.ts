@@ -42,7 +42,10 @@ const TYPE_TO_ICON = {
   [ProductType.BEER]: "🍻",
   [ProductType.WINE]: "🍷",
 };
-function renderExternalData(product: SystemetProduct, data: ExternalProductData | null) {
+function renderExternalData(
+  product: SystemetProduct,
+  data: ExternalProductData | null
+) {
   if (!data) {
     product.$ext.innerHTML = "❓";
     return;
@@ -61,7 +64,6 @@ function renderExternalData(product: SystemetProduct, data: ExternalProductData 
 }
 
 async function addExternalData(product: SystemetProduct): Promise<void> {
-  product.$ext.innerHTML = '<span class="systemet-loading">⌛</span>';
   renderExternalData(product, await fetchExternalData(product));
 }
 
@@ -77,7 +79,9 @@ function productFromEl($a: Element): SystemetProduct | null {
   const $el = $a.parentElement;
   const href = $a.getAttribute("href");
   if (!$el || !href) return null;
-  const url = new URL(window.location.protocol + "//" + window.location.hostname + href);
+  const url = new URL(
+    window.location.protocol + "//" + window.location.hostname + href
+  );
   const id = url.pathname
     .split("/")
     .filter(Boolean)
@@ -116,6 +120,9 @@ async function init() {
     await delay(500);
     const products = findProducts();
     console.log(`${products.length} products`);
+    products.forEach(
+      (p) => (p.$ext.innerHTML = '<span class="systemet-loading">⌛</span>')
+    );
     serial<SystemetProduct, void>(addExternalData, products);
   }
 }
