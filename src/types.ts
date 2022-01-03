@@ -13,3 +13,8 @@ export interface ExternalProductData {
   rating: string;
   url: string;
 }
+
+export interface ExternalProductError {
+  msg: string;
+  url: string;
+}

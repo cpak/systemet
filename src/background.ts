@@ -3,6 +3,7 @@ import {
   ExternalProductDataMsg,
   ExternalProductData,
   ProductType,
+  ExternalProductError,
 } from "./types";
 
 const HACHETTE_BASE_URL = "https://www.hachette-vins.com";
@@ -19,6 +20,10 @@ function productData(
 ): ExternalProductData | null {
   if (!name || !url || !rating) return null;
   return { name, url, rating };
+}
+
+function errorData(msg: string, url: string): ExternalProductError {
+  return { msg, url };
 }
 
 function untappdUrl(productName: string): string {
@@ -85,16 +90,21 @@ function parseHachetteHtml(html: string): ExternalProductData | null {
 async function fetchCached(
   url: string,
   parseResponse: (html: string) => ExternalProductData | null
-): Promise<ExternalProductData | null> {
+): Promise<ExternalProductData> {
   const cached = await chrome.storage.local.get(url);
   if (cached && cached[url] && cached[url].date < Date.now() + CACHE_TTL_MS) {
     return cached[url];
   }
-  const cache = (d: ExternalProductData | null) =>
-    chrome.storage.local.set({ [url]: { ...d, date: Date.now() } }).then(() => d);
+  const cache = (d: ExternalProductData) =>
+    chrome.storage.local
+      .set({ [url]: { ...d, date: Date.now() } })
+      .then(() => d);
   return fetch(url, { method: "GET", mode: "cors" })
     .then((r) => r.text())
     .then(parseResponse)
+    .then((p) =>
+      p ? p : Promise.reject(errorData("no external product found", url))
+    )
     .then(cache);
 }
 
@@ -117,6 +127,7 @@ chrome.runtime.onMessage.addListener(function (
       );
       return p;
     })
-    .then(sendResponse);
+    .then((p) => sendResponse([null, p]))
+    .catch((e) => sendResponse([e, null]));
   return true;
 });

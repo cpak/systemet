@@ -2,6 +2,7 @@ import { delay, notNull, serial } from "./utils";
 import {
   ExternalProductData,
   ExternalProductDataMsg,
+  ExternalProductError,
   ProductType,
 } from "./types";
 
@@ -20,13 +21,19 @@ const ACTIVE_CATEGORIES = ["öl", "vin"];
 function fetchExternalData(
   product: SystemetProduct
 ): Promise<ExternalProductData | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
         productName: product.name,
         productType: product.type,
       } as ExternalProductDataMsg,
-      resolve
+      ([err, data]) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(data);
+        }
+      }
     );
   });
 }
@@ -63,8 +70,20 @@ function renderExternalData(
   product.$ext.append($a);
 }
 
-async function addExternalData(product: SystemetProduct): Promise<void> {
-  renderExternalData(product, await fetchExternalData(product));
+function renderErrorData(product: SystemetProduct, data: ExternalProductError) {
+  const $a = document.createElement("a");
+  $a.href = data.url;
+  $a.target = "_blank";
+  $a.title = data.msg;
+  $a.innerHTML = `<span class="systemet-icon">❓</span>`;
+  product.$ext.innerHTML = "";
+  product.$ext.append($a);
+}
+
+function addExternalData(product: SystemetProduct): Promise<void> {
+  return fetchExternalData(product)
+    .then(d => renderExternalData(product, d))
+    .catch(d => renderErrorData(product, d));
 }
 
 function productNameFromEl($el: Element): string | undefined {
