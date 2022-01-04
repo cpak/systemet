@@ -15,6 +15,7 @@ interface SystemetProduct {
 }
 
 const SPACE_OR_NEWLINE = /\s|\n/;
+const OL_OR_VIN = /\/produkt\/(ol|vin)\//;
 const BLACK_LISTED_WORDS = ["beer"];
 const ACTIVE_CATEGORIES = ["öl", "vin"];
 
@@ -38,16 +39,15 @@ function fetchExternalData(
   });
 }
 
-function appendExtElement($root: Element) {
+function extElement(className: string) {
   const $ext = document.createElement("div");
-  $ext.classList.add("systemet");
-  $root.append($ext);
+  $ext.classList.add("systemet", className);
   return $ext;
 }
 
 const TYPE_TO_ICON = {
   [ProductType.BEER]: "🍻",
-  [ProductType.WINE]: "🍷",
+  [ProductType.WINE]: "🍷🇫🇷",
 };
 function renderExternalData(
   product: SystemetProduct,
@@ -75,9 +75,30 @@ function renderErrorData(product: SystemetProduct, data: ExternalProductError) {
   $a.href = data.url;
   $a.target = "_blank";
   $a.title = data.msg;
-  $a.innerHTML = `<span class="systemet-icon">❓</span>`;
+  const icon = TYPE_TO_ICON[product.type];
+  $a.innerHTML = `<span class="systemet-icon">${icon} ❓</span>`;
   product.$ext.innerHTML = "";
   product.$ext.append($a);
+}
+
+function productIdFromUrl(url: URL): string {
+  return url.pathname
+    .split("/")
+    .filter(Boolean)
+    .reverse()[0]
+    .split("-")
+    .reverse()[0]
+    .slice(0, -2);
+}
+
+function productTypeFromUrl(url: URL): ProductType | null {
+  switch (url.pathname.split("/")[2]) {
+    case "ol":
+      return ProductType.BEER;
+    case "vin":
+      return ProductType.WINE;
+  }
+  return null;
 }
 
 function addExternalData(product: SystemetProduct): Promise<void> {
@@ -101,43 +122,47 @@ function productFromEl($a: Element): SystemetProduct | null {
   const url = new URL(
     window.location.protocol + "//" + window.location.hostname + href
   );
-  const id = url.pathname
-    .split("/")
-    .filter(Boolean)
-    .reverse()[0]
-    .split("-")
-    .reverse()[0]
-    .slice(0, -2);
+  const id = productIdFromUrl(url);
   const name = productNameFromEl($el);
-  let type;
-  switch (url.pathname.split("/")[2]) {
-    case "ol":
-      type = ProductType.BEER;
-      break;
-    case "vin":
-      type = ProductType.WINE;
-      break;
-  }
+  const type = productTypeFromUrl(url);
   if (!id || !name || !type) return null;
-  const $ext = appendExtElement($el);
+  const $ext = extElement("list-item");
+  $el.append($ext);
   return { id, name, type, $root: $el, $ext };
 }
 
-function findProducts(): SystemetProduct[] {
+function findProductsInList(): SystemetProduct[] {
   return Array.from(
     document.querySelectorAll("a[href*=produkt]"),
     productFromEl
   ).filter(notNull);
 }
 
+function findProductInPage(url: URL): SystemetProduct | null {
+  const name = document.title.split("|")[0].trim();
+  const id = productIdFromUrl(url);
+  const type = productTypeFromUrl(url);
+  const $root = document.querySelector("main");
+  if (!id || !name || !type || !$root) return null;
+  const $ext = extElement("single-item");
+  $root?.querySelector("h1")?.after($ext);
+  return { id, name, type, $root, $ext };
+}
+
 async function init() {
-  const sp = new URLSearchParams(window.location.search);
+  const pageUrl = new URL(window.location.href);
+  const queryParams = new URLSearchParams(pageUrl.search);
+  let products: SystemetProduct[] = [];
   if (
-    ACTIVE_CATEGORIES.includes(sp.get("categoryLevel1")?.toLowerCase() || "")
+    ACTIVE_CATEGORIES.includes(queryParams.get("categoryLevel1")?.toLowerCase() || "")
   ) {
     console.log("init");
     await delay(500);
-    const products = findProducts();
+    products = findProductsInList();
+  } else if (OL_OR_VIN.test(pageUrl.pathname)) {
+    products = [findProductInPage(pageUrl)].filter(notNull);
+  }
+  if (products.length) {
     console.log(`${products.length} products`);
     products.forEach(
       (p) => (p.$ext.innerHTML = '<span class="systemet-loading">⌛</span>')
