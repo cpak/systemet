@@ -2,8 +2,8 @@ const path = require("path");
 const CopyPlugin = require("copy-webpack-plugin");
 
 module.exports = {
-  mode: "development",
-  devtool: "inline-source-map",
+  mode: "production",
+  devtool: "source-map",
   entry: {
     content: path.join(__dirname, "src", "content.ts"),
     background: path.join(__dirname, "src", "background.ts"),
@@ -14,9 +14,6 @@ module.exports = {
   },
   target: "web",
   resolve: {
-    alias: {
-      process: "process/browser"
-    },
     extensions: [".ts", ".tsx", ".js"],
   },
   module: {

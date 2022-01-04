@@ -2,12 +2,12 @@
   "name": "systemet",
   "version": "1.0.0",
   "description": "systemet",
-  "main": "build/index.js",
+  "sideEffects": false,
   "scripts": {
     "clean": "rm -rf build",
-    "dev": "webpack --watch",
+    "dev": "webpack --watch --config webpack.config.dev.js",
     "start": "./server/index.js ./build",
-    "build": "webpack"
+    "build": "webpack --config webpack.config.js"
   },
   "author": "christoferpak@gmail.com",
   "license": "ISC",
