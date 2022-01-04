@@ -31,3 +31,11 @@ export function delay(n: number): Promise<void> {
     setTimeout(resolve, n);
   });
 }
+
+export function debounce(fn: CallableFunction, delayMs: number): () => void {
+  let t: number;
+  return () => {
+    if (t) clearTimeout(t);
+    t = setTimeout(fn, delayMs);
+  };
+}

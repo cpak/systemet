@@ -1,4 +1,4 @@
-import { delay, notNull, serial } from "./utils";
+import { delay, notNull, serial, debounce } from "./utils";
 import {
   ExternalProductData,
   ExternalProductDataMsg,
@@ -18,6 +18,7 @@ const SPACE_OR_NEWLINE = /\s|\n/;
 const OL_OR_VIN = /\/produkt\/(ol|vin)\//;
 const BLACK_LISTED_WORDS = ["beer"];
 const ACTIVE_CATEGORIES = ["öl", "vin"];
+const LOADING_HTML = '<span class="systemet-loading">⌛</span>';
 
 function fetchExternalData(
   product: SystemetProduct
@@ -103,8 +104,8 @@ function productTypeFromUrl(url: URL): ProductType | null {
 
 function addExternalData(product: SystemetProduct): Promise<void> {
   return fetchExternalData(product)
-    .then(d => renderExternalData(product, d))
-    .catch(d => renderErrorData(product, d));
+    .then((d) => renderExternalData(product, d))
+    .catch((d) => renderErrorData(product, d));
 }
 
 function productNameFromEl($el: Element): string | undefined {
@@ -131,11 +132,12 @@ function productFromEl($a: Element): SystemetProduct | null {
   return { id, name, type, $root: $el, $ext };
 }
 
-function findProductsInList(): SystemetProduct[] {
-  return Array.from(
-    document.querySelectorAll("a[href*=produkt]"),
-    productFromEl
-  ).filter(notNull);
+function findProductsInList(seen: Set<Element>): SystemetProduct[] {
+  return Array.from(document.querySelectorAll("a[href*=produkt]"), ($el) => {
+    if (seen.has($el)) return null;
+    seen.add($el);
+    return productFromEl($el);
+  }).filter(notNull);
 }
 
 function findProductInPage(url: URL): SystemetProduct | null {
@@ -149,25 +151,36 @@ function findProductInPage(url: URL): SystemetProduct | null {
   return { id, name, type, $root, $ext };
 }
 
+async function decorateProductList(seen: Set<Element>) {
+  const products = findProductsInList(seen);
+  products.forEach((p) => (p.$ext.innerHTML = LOADING_HTML));
+  serial<SystemetProduct, void>(addExternalData, products);
+}
+
+function decorateProductPage(pageUrl: URL) {
+  const product = findProductInPage(pageUrl);
+  if (!product) return;
+  product.$ext.innerHTML = LOADING_HTML;
+  addExternalData(product);
+}
+
 async function init() {
   const pageUrl = new URL(window.location.href);
   const queryParams = new URLSearchParams(pageUrl.search);
-  let products: SystemetProduct[] = [];
   if (
-    ACTIVE_CATEGORIES.includes(queryParams.get("categoryLevel1")?.toLowerCase() || "")
+    ACTIVE_CATEGORIES.includes(
+      queryParams.get("categoryLevel1")?.toLowerCase() || ""
+    )
   ) {
-    console.log("init");
     await delay(500);
-    products = findProductsInList();
-  } else if (OL_OR_VIN.test(pageUrl.pathname)) {
-    products = [findProductInPage(pageUrl)].filter(notNull);
-  }
-  if (products.length) {
-    console.log(`${products.length} products`);
-    products.forEach(
-      (p) => (p.$ext.innerHTML = '<span class="systemet-loading">⌛</span>')
+    const seen = new Set<Element>();
+    decorateProductList(seen);
+    window.addEventListener(
+      "scroll",
+      debounce(() => decorateProductList(seen), 1000)
     );
-    serial<SystemetProduct, void>(addExternalData, products);
+  } else if (OL_OR_VIN.test(pageUrl.pathname)) {
+    decorateProductPage(pageUrl);
   }
 }
 
