@@ -1,3 +1,31 @@
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+interface CacheItem<T> {
+  data: T | null;
+  date: number;
+}
+
+async function cacheSet<T>(key: string, data: T): Promise<T> {
+  await chrome.storage.local.set({ [key]: { data, date: Date.now() } });
+  return data;
+}
+
+async function cacheGet<T>(key: string) {
+  const cached: { [key: string]: CacheItem<T> } =
+    await chrome.storage.local.get(key);
+  if (cached && cached[key] && cached[key].date < Date.now() + CACHE_TTL_MS) {
+    return cached[key].data;
+  }
+  return null;
+}
+
+export function cached<T>(fn: (arg: string) => Promise<T>): (arg: string) => Promise<T> {
+  return async (arg: string) => {
+    const cached = await cacheGet<T>(arg);
+    if (cached) return cached;
+    return fn(arg).then((res: T) => cacheSet<T>(arg, res));
+  };
+}
+
 export async function serial<T, U>(
   fn: (arg0: T) => Promise<U>,
   xs: T[]

@@ -1,42 +1,30 @@
 import { delay, notNull, serial, debounce } from "./utils";
 import {
   ExternalProductData,
-  ExternalProductDataMsg,
   ExternalProductError,
+  GetExternalProductDataMsg,
   ProductType,
+  SystemetProduct,
 } from "./types";
 
-interface SystemetProduct {
-  name: string;
-  id: string;
-  type: ProductType;
-  $root: Element;
-  $ext: Element;
-}
-
-const SPACE_OR_NEWLINE = /\s|\n/;
 const OL_OR_VIN = /\/produkt\/(ol|vin)\//;
-const BLACK_LISTED_WORDS = ["beer"];
 const ACTIVE_CATEGORIES = ["öl", "vin"];
 const LOADING_HTML = '<span class="systemet-loading">⌛</span>';
 
 function fetchExternalData(
   product: SystemetProduct
-): Promise<ExternalProductData | null> {
+): Promise<ExternalProductData> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      {
-        productName: product.name,
-        productType: product.type,
-      } as ExternalProductDataMsg,
-      ([err, data]) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(data);
-        }
+    const msg: GetExternalProductDataMsg = {
+      url: product.url,
+    };
+    chrome.runtime.sendMessage(msg, ([err, data]) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(data);
       }
-    );
+    });
   });
 }
 
@@ -48,25 +36,27 @@ function extElement(className: string) {
 
 const TYPE_TO_ICON = {
   [ProductType.BEER]: "🍻",
-  [ProductType.WINE]: "🍷🇫🇷",
+  [ProductType.WINE]: "🍷 🇫🇷",
 };
 function renderExternalData(
   product: SystemetProduct,
-  data: ExternalProductData | null
+  data: ExternalProductData
 ) {
-  if (!data) {
-    product.$ext.innerHTML = "❓";
-    return;
-  }
-  const $a = document.createElement("a");
-  $a.href = data.url;
-  $a.target = "_blank";
-  $a.title = data.name;
   const icon = TYPE_TO_ICON[product.type];
-  $a.innerHTML = [
-    `<span class="systemet-icon">${icon}</span>`,
-    `<span class="systemet-rating">${data.rating}</span>`,
-  ].join("\n");
+  const $a = document.createElement("a");
+  $a.target = "_blank";
+  if (data.product) {
+    $a.href = data.product.url;
+    $a.title = data.product.name;
+    $a.innerHTML = [
+      `<span class="systemet-icon">${icon}</span>`,
+      `<span class="systemet-rating">${data.product.rating}</span>`,
+    ].join("\n");
+  } else {
+    $a.href = data.searchUrl;
+    $a.title = "not found";
+    $a.innerHTML = `<span class="systemet-icon">${icon} ❌</span>`;
+  }
   product.$ext.innerHTML = "";
   product.$ext.append($a);
 }
@@ -77,12 +67,12 @@ function renderErrorData(product: SystemetProduct, data: ExternalProductError) {
   $a.target = "_blank";
   $a.title = data.msg;
   const icon = TYPE_TO_ICON[product.type];
-  $a.innerHTML = `<span class="systemet-icon">${icon} ❓</span>`;
+  $a.innerHTML = `<span class="systemet-icon">${icon} 💥</span>`;
   product.$ext.innerHTML = "";
   product.$ext.append($a);
 }
 
-function productIdFromUrl(url: URL): string {
+function productNumberFromUrl(url: URL): string {
   return url.pathname
     .split("/")
     .filter(Boolean)
@@ -108,51 +98,42 @@ function addExternalData(product: SystemetProduct): Promise<void> {
     .catch((d) => renderErrorData(product, d));
 }
 
-function productNameFromEl($el: Element): string | undefined {
-  return $el
-    .querySelector("h3")
-    ?.innerText?.split(SPACE_OR_NEWLINE)
-    .filter((s) => s && !BLACK_LISTED_WORDS.includes(s.toLowerCase()))
-    .join(" ");
-}
-
-function productFromEl($a: Element): SystemetProduct | null {
+function productFromListEl($a: Element): SystemetProduct | null {
   const $el = $a.parentElement;
   const href = $a.getAttribute("href");
   if (!$el || !href) return null;
   const url = new URL(
     window.location.protocol + "//" + window.location.hostname + href
   );
-  const id = productIdFromUrl(url);
-  const name = productNameFromEl($el);
+  const productNumber = productNumberFromUrl(url);
   const type = productTypeFromUrl(url);
-  if (!id || !name || !type) return null;
+  if (!productNumber || !type) return null;
   const $ext = extElement("list-item");
   $el.append($ext);
-  return { id, name, type, $root: $el, $ext };
+  return { url: url.toString(), $root: $el, $ext, type };
 }
 
 function findProductsInList(seen: Set<Element>): SystemetProduct[] {
   return Array.from(document.querySelectorAll("a[href*=produkt]"), ($el) => {
     if (seen.has($el)) return null;
     seen.add($el);
-    return productFromEl($el);
+    return productFromListEl($el);
   }).filter(notNull);
 }
 
 function findProductInPage(url: URL): SystemetProduct | null {
-  const name = document.title.split("|")[0].trim();
-  const id = productIdFromUrl(url);
+  const productNumber = productNumberFromUrl(url);
   const type = productTypeFromUrl(url);
   const $root = document.querySelector("main");
-  if (!id || !name || !type || !$root) return null;
+  if (!productNumber || !type || !$root) return null;
   const $ext = extElement("single-item");
   $root?.querySelector("h1")?.after($ext);
-  return { id, name, type, $root, $ext };
+  return { url: url.toString(), type, $root, $ext };
 }
 
 async function decorateProductList(seen: Set<Element>) {
   const products = findProductsInList(seen);
+  console.log(`${products.length} products`);
   products.forEach((p) => (p.$ext.innerHTML = LOADING_HTML));
   serial<SystemetProduct, void>(addExternalData, products);
 }
@@ -165,6 +146,7 @@ function decorateProductPage(pageUrl: URL) {
 }
 
 async function init() {
+  console.log("init");
   const pageUrl = new URL(window.location.href);
   const queryParams = new URLSearchParams(pageUrl.search);
   if (

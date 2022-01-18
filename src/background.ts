@@ -1,133 +1,61 @@
-import cheerio from "cheerio";
+import { get as hachetteGet } from "./services/hachette";
+import { get as untappdGet } from "./services/untappd";
+import { get as systembolagetGet } from "./services/systembolaget";
 import {
-  ExternalProductDataMsg,
-  ExternalProductData,
   ProductType,
-  ExternalProductError,
+  GetExternalProductDataMsg,
+  ExternalProduct,
 } from "./types";
 
-const HACHETTE_BASE_URL = "https://www.hachette-vins.com";
-const UNTAPPD_BASE_URL = "https://untappd.com";
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-
-// TODO: get structured product data from Systembolaget search
-// window.appSettings.ocpApimSubscriptionKey
-
-function productData(
-  name: string | null,
-  url: string | null,
-  rating: string | null
-): ExternalProductData | null {
-  if (!name || !url || !rating) return null;
-  return { name, url, rating };
+interface CacheItem {
+  data: ExternalProduct | null;
+  date: number;
 }
 
-function errorData(msg: string, url: string): ExternalProductError {
-  return { msg, url };
-}
-
-function untappdUrl(productName: string): string {
-  return `${UNTAPPD_BASE_URL}/search?q=${encodeURIComponent(productName)}`;
-}
-
-function parseUntappdHtml(html: string): ExternalProductData | null {
-  const $doc = cheerio.load(html);
-  let externalProduct: ExternalProductData | null = null;
-  $doc(".beer-item").each((_, el) => {
-    if (externalProduct) return;
-    const $el = cheerio(el);
-    const itemPath = $el.find("a[href^=\\/beer\\/]").first()?.attr("href");
-    const url = itemPath ? `${UNTAPPD_BASE_URL}${itemPath}` : null;
-    const name = $el
-      .find(".beer-item .beer-details")
-      .text()
-      .split("\n")
-      .filter(Boolean)
-      .join(", ");
-    const $rating = $el.find(".rating .caps").first();
-    const rating = Math.round(100 * parseFloat($rating.data("rating"))) / 100;
-    externalProduct = productData(name, url, rating.toString());
-  });
-  return externalProduct;
-}
-
-function hachetteUrl(productName: string): string {
-  return `${HACHETTE_BASE_URL}/vins/list/?search=${encodeURIComponent(
-    productName
-  ).replace(/%20/g, "+")}`;
-}
-
-function parseHachetteHtml(html: string): ExternalProductData | null {
-  const $doc = cheerio.load(html);
-  let externalProduct: ExternalProductData | null = null;
-  $doc(".vinResult .block").each((_, el) => {
-    if (externalProduct) return;
-    const $el = cheerio(el);
-    const name = [
-      $el.find(".title h2")?.text(),
-      $el.find(".sub-title h2")?.text(),
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const url = HACHETTE_BASE_URL + ($el.find(".title a")?.attr("href") || "");
-    const year = $el
-      .find(".stars h2")
-      ?.text()
-      .split(" ")
-      .filter((s) => !isNaN(parseInt(s, 10)))[0];
-    const rating = [
-      $el.find(".stars .active").length.toString() || "0",
-      $el.find(".which .icon-heart").length ? "❤" : "",
-      year && `(${year})`,
-    ]
-      .filter(Boolean)
-      .join(" ");
-    externalProduct = productData(name, url, rating);
-  });
-  return externalProduct;
-}
-
-async function fetchCached(
-  url: string,
-  parseResponse: (html: string) => ExternalProductData | null
-): Promise<ExternalProductData> {
-  const cached = await chrome.storage.local.get(url);
-  if (cached && cached[url] && cached[url].date < Date.now() + CACHE_TTL_MS) {
-    return cached[url];
-  }
-  const cache = (d: ExternalProductData) =>
-    chrome.storage.local
-      .set({ [url]: { ...d, date: Date.now() } })
-      .then(() => d);
-  return fetch(url, { method: "GET", mode: "cors" })
-    .then((r) => r.text())
-    .then(parseResponse)
-    .then((p) =>
-      p ? p : Promise.reject(errorData("no external product found", url))
-    )
-    .then(cache);
-}
-
-const TYPE_TO_CONFIG = {
-  [ProductType.BEER]: { url: untappdUrl, parseResponse: parseUntappdHtml },
-  [ProductType.WINE]: { url: hachetteUrl, parseResponse: parseHachetteHtml },
+const TYPE_TO_GETTER = {
+  [ProductType.BEER]: untappdGet,
+  [ProductType.WINE]: hachetteGet,
 };
 
+async function handleMessage(
+  message: GetExternalProductDataMsg,
+  sendResponse: (response?: any) => void
+) {
+  const inputLog = [message.url];
+  try {
+    const internalProduct = await systembolagetGet(message.url);
+    if (!internalProduct)
+      throw new Error("could not read internal product data");
+    inputLog.push.apply(inputLog, [
+      internalProduct.name,
+      internalProduct.producer,
+      internalProduct.vintage,
+    ]);
+    const getExternalProductData = TYPE_TO_GETTER[internalProduct.type];
+    const externalProduct = await getExternalProductData(internalProduct);
+    const outputLog = [externalProduct.searchUrl];
+    if (externalProduct.product) {
+      outputLog.push.apply(outputLog, [
+        externalProduct.product.name,
+        externalProduct.product.rating,
+        externalProduct.product.url,
+      ]);
+    } else {
+      outputLog.push("not found");
+    }
+    console.log(`${inputLog.join(", ")} => ${outputLog.join(", ")}`);
+    sendResponse([null, externalProduct]);
+  } catch (e) {
+    console.error(`${inputLog.join(", ")} => error`, e);
+    sendResponse([e, null]);
+  }
+}
+
 chrome.runtime.onMessage.addListener(function (
-  request: ExternalProductDataMsg,
+  message: GetExternalProductDataMsg,
   sender,
   sendResponse
 ) {
-  const { url, parseResponse } = TYPE_TO_CONFIG[request.productType];
-  fetchCached(url(request.productName), parseResponse)
-    .then((p) => {
-      const logStr = p ? `${p.name} ${p.rating} ${p.url}` : "null";
-      console.log(
-        `${request.productName} (${request.productType}) => ${logStr}`
-      );
-      return p;
-    })
-    .then((p) => sendResponse([null, p]))
-    .catch((e) => sendResponse([e, null]));
+  handleMessage(message, sendResponse);
   return true;
 });
